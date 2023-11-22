@@ -1,20 +1,22 @@
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
+from time import time
 
 batch_size = 32
 block_size = 256
 n_embd = 126
+# max_iters = 1
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
-eval_iters= 200
+eval_iters= 100
 n_head = 6
 n_layer = 6
 droupout = 0.2
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-with open('input.txt', 'r', encoding='utf-8') as f:
+with open('ye_lyrics.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
 chars = sorted(list(set(text)))
@@ -76,6 +78,7 @@ class Head(nn.Module):
 
         v = self.value(x)
         out = wei @ v
+        print(out.shape)
         return out
 
 class MultiHeadAttention(nn.Module):
@@ -88,7 +91,33 @@ class MultiHeadAttention(nn.Module):
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.proj(out)
+        print(out.shape)
         return out
+
+class CausalAttention(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.c_attention = nn.Linear(n_embd, n_embd * 3)
+        self.proj = nn.Linear(n_embd, n_embd)
+        self.dropout = nn.Dropout(droupout)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size, block_size)).view(1, 1, block_size, block_size))
+    
+    def forward(self, x):
+        B, T, C = x.shape
+
+        q, k, v = self.c_attention(x).split(n_embd, dim=2)
+        q = q.view(B, T, n_head, C // n_head).transpose(1, 2)
+        k = k.view(B, T, n_head, C // n_head).transpose(1, 2)
+        v = v.view(B, T, n_head, C // n_head).transpose(1, 2)
+
+        wei = (q @ k.transpose(-1, -2)) * C ** -0.5
+        wei = wei.masked_fill(self.tril[:, :, :T, :T] == 0, float('-inf'))
+        wei = F.softmax(wei, dim=-1)
+        wei = self.dropout(wei)
+        out = wei @ v
+        out = out.transpose(1, 2).contiguous().view(B, T, C)
+        return self.proj(out)
+
 
 class FeedForward(nn.Module):
     def __init__(self, n_embd):
@@ -107,7 +136,8 @@ class Block(nn.Module):
     def __init__(self, n_embd, n_head):
         super().__init__()
         head_size = n_embd // n_head
-        self.sa = MultiHeadAttention(n_head, head_size)
+        # self.sa = MultiHeadAttention(n_head, head_size)
+        self.sa = CausalAttention()
         self.ffwd = FeedForward(n_embd)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
@@ -172,6 +202,11 @@ for iter in range(max_iters + 1):
     if iter % eval_interval == 0:
         losses = estimate_loss()
         print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+    
+    if iter % 2000 == 0:
+        context = torch.zeros((1, 1), dtype=torch.long, device=device)
+        print(decode(m.generate(context, max_new=1000)[0].tolist()))
+        torch.save(m, f"./kanye-models/iter-{iter}.py")
 
     xb, yb = get_batch('train')
     logits, loss = model(xb, yb)
@@ -181,4 +216,4 @@ for iter in range(max_iters + 1):
 
 context = torch.zeros((1, 1), dtype=torch.long, device=device)
 # m.generate(context, max_new=500)
-print(decode(m.generate(context, max_new=500)[0].tolist()))
+print(decode(m.generate(context, max_new=1000)[0].tolist()))
