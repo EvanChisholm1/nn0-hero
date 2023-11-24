@@ -2,31 +2,39 @@ import torch
 import torch.nn as nn
 from torch.nn import functional as F
 from time import time
+import tiktoken
+
+enc = tiktoken.get_encoding("p50k_base")
 
 batch_size = 32
-block_size = 256
-n_embd = 126
+block_size = 128
+n_embd = 32
 # max_iters = 1
 save_interval = 2000
-max_iters = 5000
+max_iters = 10000
 eval_interval = 500
 learning_rate = 3e-4
 eval_iters= 100
-n_head = 6
-n_layer = 6
+# n_head = 6
+# n_layer = 6
+n_head = 2
+n_layer = 2
 droupout = 0.2
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 with open('ye_lyrics.txt', 'r', encoding='utf-8') as f:
     text = f.read()
 
-chars = sorted(list(set(text)))
-vocab_size = len(chars)
+# chars = sorted(list(set(text)))
+# vocab_size = len(chars)
+vocab_size = enc.n_vocab
 
-stoi = { ch:i for i, ch in enumerate(chars) }
-itos = { i:ch for i, ch in enumerate(chars) }
-encode = lambda s: [stoi[c] for c in s]
-decode = lambda l: ''.join([itos[i] for i in l])
+# stoi = { ch:i for i, ch in enumerate(chars) }
+# itos = { i:ch for i, ch in enumerate(chars) }
+# encode = lambda s: [stoi[c] for c in s]
+# decode = lambda l: ''.join([itos[i] for i in l])
+def encode(t): return enc.encode(t)
+def decode(t): return enc.decode(t)
 torch.manual_seed(1337)
 
 data = torch.tensor(encode(text), dtype=torch.long, device=device)
@@ -195,6 +203,9 @@ class GPT(nn.Module):
 if __name__ == "__main__":
     model = GPT()
     print(f"n params: {sum(p.numel() for p in model.parameters())}")
+    print('loading model...')
+    model.load_state_dict(torch.load('./kanye-models/iter-final.pt'))
+    print('model loaded!')
     m = model.to(device)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
