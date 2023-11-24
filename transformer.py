@@ -7,6 +7,7 @@ batch_size = 32
 block_size = 256
 n_embd = 126
 # max_iters = 1
+save_interval = 2000
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
@@ -91,7 +92,6 @@ class MultiHeadAttention(nn.Module):
     def forward(self, x):
         out = torch.cat([h(x) for h in self.heads], dim=-1)
         out = self.proj(out)
-        print(out.shape)
         return out
 
 class CausalAttention(nn.Module):
@@ -192,28 +192,29 @@ class GPT(nn.Module):
             idx = torch.cat((idx, idx_next), dim=1)
         return idx
 
-model = GPT()
-print(f"n params: {sum(p.numel() for p in model.parameters())}")
-m = model.to(device)
+if __name__ == "__main__":
+    model = GPT()
+    print(f"n params: {sum(p.numel() for p in model.parameters())}")
+    m = model.to(device)
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate)
 
-for iter in range(max_iters + 1):
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
-        print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
-    
-    if iter % 2000 == 0:
-        context = torch.zeros((1, 1), dtype=torch.long, device=device)
-        print(decode(m.generate(context, max_new=1000)[0].tolist()))
-        torch.save(m, f"./kanye-models/iter-{iter}.py")
+    for iter in range(max_iters + 1):
+        if iter % eval_interval == 0:
+            losses = estimate_loss()
+            print(f"step {iter}: train loss {losses['train']:.4f}, val loss {losses['val']:.4f}")
+        
+        if iter % save_interval == 0:
+            context = torch.zeros((1, 1), dtype=torch.long, device=device)
+            print(decode(m.generate(context, max_new=1000)[0].tolist()))
+            torch.save(m.state_dict(), f"./kanye-models/iter-{iter}.pt")
 
-    xb, yb = get_batch('train')
-    logits, loss = model(xb, yb)
-    optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
+        xb, yb = get_batch('train')
+        logits, loss = model(xb, yb)
+        optimizer.zero_grad(set_to_none=True)
+        loss.backward()
+        optimizer.step()
 
-context = torch.zeros((1, 1), dtype=torch.long, device=device)
-# m.generate(context, max_new=500)
-print(decode(m.generate(context, max_new=1000)[0].tolist()))
+    context = torch.zeros((1, 1), dtype=torch.long, device=device)
+    print(decode(m.generate(context, max_new=1000)[0].tolist()))
+    torch.save(m.state_dict(), f"./kanye-models/iter-final.pt")
